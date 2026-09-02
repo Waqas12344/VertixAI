@@ -1,96 +1,111 @@
-# AGENTS.md
+# AGENTS.md - VertixAI (Multi-Service AI SaaS)
 
-## Project overview
+## 1. Project Identity & Overview
+- **Product Name**: VertixAI
+- **Tagline**: The Unified Workspace for Conversational Intelligence & Generative Media
+- **Framework**: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS v4 + shadcn/ui
+- **Infrastructure**: Supabase (Auth, PostgreSQL, Storage) + Google Gen AI SDK (`@google/genai`)
+- **IDE & Tooling**: Kiro IDE with Supabase MCP Server enabled
 
-Studio Admin is a responsive admin dashboard built with Next.js 16, React 19, TypeScript, Tailwind CSS v4, and shadcn/ui.
+---
 
-This repository uses the shadcn `radix-nova` style. The shadcn CLI reports `base: "radix"`, which refers to Radix UI. Always inspect the local components in `src/components/ui/` because individual wrappers may use different primitives.
+## 2. Core Operational Principles for AI Agents
 
-<!-- BEGIN:nextjs-agent-rules -->
+1. **Strict Phased Progression**: Complete and verify each phase fully before generating code for subsequent phases.
+2. **Colocation File Structure**: Every distinct feature lives in its own route group (`src/app/(main)/<feature>/`) with components colocated inside `_components/`.
+3. **No Breaking Modifications**: Do NOT modify primitive components inside `src/components/ui/` unless explicitly requested.
+4. **Zero Client-Side Secrets**: Never access `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, or `GEMINI_API_KEY` inside client components (`'use client'`).
+5. **Credit-Protected API Routes**: Every AI endpoint must authenticate the user, verify credit balance, and execute a database deduction before calling the Gemini SDK.
 
-# Next.js: ALWAYS read docs before coding
+---
 
-Before any Next.js work, find and read the relevant doc in `node_modules/next/dist/docs/`. Your training data is outdated — the docs are the source of truth.
+## 3. Tech Stack & Environment Specifications
 
-<!-- END:nextjs-agent-rules -->
+- **Framework**: Next.js 16 (App Router) + React 19 + TypeScript
+- **Styling**: Tailwind CSS v4 + shadcn/ui + Lucide React
+- **Authentication**: `@supabase/ssr` + `@supabase/supabase-js`
+- **Database & ORM**: Supabase PostgreSQL + Prisma ORM
+- **Object Storage**: Supabase Storage (Bucket: `generated-images`)
+- **AI Engine**: `@google/genai` (Official Google Gen AI SDK)
+- **Validation**: Zod + React Hook Form
 
-## shadcn skill
+---
 
-Use the shadcn skill for all work involving shadcn/ui components, styling, composition, registries, presets, or `components.json`.
+## 4. Phased Step-by-Step Implementation Roadmap
 
-If the skill is not available, install it with:
+### ✅ PHASE 1: Environment & Database Architecture (COMPLETED)
+- [x] Defined models in `prisma/schema.prisma` (`User`, `Conversation`, `Message`, `GeneratedImage`, `UsageLog`).
+- [x] Configured `prisma.config.ts` for direct/pooled connections.
+- [x] Executed `npx prisma db push` and generated client.
 
-```bash
-npx skills add shadcn/ui
-```
+### ✅ PHASE 2: Complete Authentication & Route Security (COMPLETED)
+- [x] Configured Supabase SSR clients (`client.ts`, `server.ts`).
+- [x] Built strict session verification in `src/middleware.ts` for protected routes (`/dashboard`, `/chat`, `/image-generator`, `/billing`).
+- [x] Connected login, register, and Google OAuth flows.
+- [x] Created database trigger on `auth.users` to provision `User` records with **50 free starting credits**.
 
-The skill contains the component, styling, composition, accessibility, and CLI rules. Do not duplicate those rules here. Always inspect the local component source before using it.
+### ✅ PHASE 3: Core SaaS Layout & Navigation (COMPLETED)
+- [x] Pruned unused template screens from `src/app/(main)/dashboard/`.
+- [x] Updated sidebar navigation with clean routes.
+- [x] Added dynamic user profile and credit meter components.
 
-Do not modify files inside `src/components/ui/` or `src/components/calendar/`. Keep these components intact and apply styling or customization where they are used.
+---
 
-## Setup
+### ⏳ PHASE 3.5: User Profile & Billing System (CURRENT FOCUS)
+**Goal**: Build dynamic profile management and billing/credit replenishment infrastructure.
 
-This project uses npm.
+- [ ] **User Profile Page (`src/app/(main)/dashboard/profile/page.tsx`)**:
+  - Fetch real user data from Supabase Auth & Prisma `User`.
+  - Display: User Name, Email, Plan Badge (`FREE` / `PRO`), Account Creation Date, and Live Available Credits.
+  - Enable display name / avatar updates.
+  - Display usage history log (Recent operations from the `UsageLog` table).
 
-```bash
-npm install
-npm run dev
-```
+- [ ] **Billing & Plans Page (`src/app/(main)/billing/page.tsx`)**:
+  - `_components/pricing-cards.tsx`:
+    - **Starter / Free Plan**: 50 credits (default on signup), standard model access.
+    - **Pro Plan**: 1,500 credits/mo, priority image generation, fast responses.
+    - **Credit Top-up Packs**: Purchase one-time packs (e.g., 500 credits for custom top-up).
+  - `_components/credit-summary-card.tsx`:
+    - Live remaining balance progress bar.
+    - Cost breakdown sheet: Chat = 1 credit, Image = 5 credits.
+  - Prepare payment gateway checkout hooks (Safepay / Lemon Squeezy integration point).
 
-Available commands:
+---
 
-```bash
-npm run build
-npm run lint
-npm run format
-npm run check
-npm run check:fix
-npm run generate:presets
-```
+### 💬 PHASE 4: AI Service 1 — Multi-Turn Streaming Chatbot
+**Goal**: Build a streaming AI chat interface powered by Gemini.
 
-There is currently no automated test command. Run build, lint, check, or other validation commands only when the user explicitly requests that validation.
+- [ ] Initialize Gemini SDK client in `src/lib/gemini.ts` using `@google/genai`.
+- [ ] Create Streaming API Route (`src/app/api/ai/chat/route.ts`):
+  - Authenticate session, check & deduct **1 credit** via `checkAndDeductCredits`.
+  - Stream tokens using `ai.models.generateContentStream` with `gemini-2.5-flash`.
+  - Save prompt and model response to `Conversation` & `Message` models in PostgreSQL.
+- [ ] Refactor Chat UI (`src/app/(main)/chat/`):
+  - Conversation thread with Markdown and code syntax highlighting.
+  - Chat history sidebar fetching previous conversations.
+  - Insufficient credit gate modal routing to `/billing`.
 
-## Co-location-based structure
+---
 
-Keep feature code close to the route that owns it.
+### 🎨 PHASE 5: AI Service 2 — Text-to-Image Studio
+**Goal**: Build a prompt-based image generation tool with Supabase Storage.
 
-- Dashboard routes: `src/app/(main)/dashboard/<screen>/page.tsx`
-- Screen-specific components, data, and schemas: `src/app/(main)/dashboard/<screen>/_components/`
-- Shared dashboard components: `src/app/(main)/dashboard/_components/`
-- Shared application components: `src/components/`
-- Local shadcn components: `src/components/ui/`
-- Shared hooks and utilities: `src/hooks/` and `src/lib/`
-- Theme presets: `src/styles/presets/`
+- [ ] Create Image API Route (`src/app/api/ai/image/route.ts`):
+  - Authenticate session, check & deduct **5 credits**.
+  - Generate image buffer using `gemini-2.5-flash-image`.
+  - Upload image directly to Supabase Storage (`generated-images` bucket).
+  - Record public image URL in Prisma `GeneratedImage`.
+- [ ] Build Image Studio UI (`src/app/(main)/image-generator/`):
+  - `_components/prompt-bar.tsx`: Prompt bar, aspect ratio selector, generate button.
+  - `_components/image-gallery.tsx`: Responsive grid showing previous user images with single-click download.
 
-Keep a component inside its route until it is reused by another feature. Do not move screen-specific code into a shared directory preemptively.
+---
 
-## Creating or extending a screen
+## 5. Coding Standards & Guardrails
 
-1. Inspect the closest current screen before writing code. Finance, Infrastructure, CRM, and Analytics are useful references. Do not use routes under `(legacy)` as references for new screens unless maintaining a legacy route.
-2. When reproducing a UI from a screenshot or image, follow its visual direction closely, including layout, hierarchy, spacing, component structure, and important details. Implement it with the project's existing components and semantic theme tokens rather than copying raw color values. If the design needs a color that is not available through the existing theme tokens, or the user explicitly requests a non-theme color, use a named color from Tailwind's default palette. Do not use arbitrary hex, RGB, HSL, or OKLCH values.
-3. Reuse the existing dashboard shell, local components, layout controls, and theme tokens.
-4. Break each new page into focused components inside the route's `_components/` directory. Keep `page.tsx` small and focused on composing those pieces.
-5. Keep `page.tsx` as a Server Component by default. Move interactive or browser-dependent code into a dedicated Client Component.
-6. Add the screen to `src/navigation/sidebar/sidebar-items.ts` when it should appear in the dashboard navigation.
-7. Decide the information hierarchy before choosing widgets. Let the content determine the page structure.
-8. Keep the established visual rhythm where it fits: compact spacing, clear typography hierarchy, responsive action rows, and grids that collapse cleanly on smaller screens.
-9. Widget selection is not a fixed formula. Try different arrangements of cards, resource rows, meters, charts, tabs, empty states, and actions, then keep the version that communicates the content clearly and feels consistent with the project.
-10. Match nearby screens in card density, borders, radius, spacing, content width, and responsive behavior.
-11. Use semantic theme tokens so new screens work with light mode, dark mode, and the existing theme presets.
-12. Handle relevant loading, empty, error, disabled, and overflow states.
-13. Keep screens accessible with semantic HTML, keyboard support, visible focus states, labels, and appropriate ARIA attributes.
-
-## Code conventions
-
-- TypeScript strict mode is enabled. Use precise types and avoid `any`.
-- Use the existing `@/` import aliases.
-- Follow the Biome configuration: double quotes, semicolons, two-space indentation, sorted imports, and a 120-character line width.
-- Avoid unnecessary dependencies.
-- Keep changes focused and do not refactor unrelated files.
-
-## Contributions
-
-- Use conventional commit prefixes such as `feat:`, `fix:`, `refactor:`, `docs:`, and `chore:`.
-- Include screenshots for new screens and material visual changes. Include mobile and dark-theme states when relevant.
-- Explain new reusable patterns or dependencies in the pull request.
-- Follow `CONTRIBUTING.md` for the contribution workflow.
+- **Validation**: All incoming API requests must be validated using **Zod** schemas.
+- **Credit Protection**: Always deduct credits on the server side using atomic Prisma transactions (`$transaction`).
+- **Dependencies**: Use only `@google/genai` (Never use deprecated `@google/generative-ai` or `langchain`).
+- ❌ Do NOT store raw image base64 strings directly in the PostgreSQL database.
+- ❌ Do NOT call AI endpoints directly from client components.
+- ❌ Do NOT touch primitive components in `src/components/ui/`.

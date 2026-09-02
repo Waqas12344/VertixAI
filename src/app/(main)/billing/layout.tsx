@@ -12,11 +12,11 @@ import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { getPreference } from "@/server/server-actions";
 
-import { LayoutControls } from "./_components/header/layout-controls";
-import { SearchDialog } from "./_components/header/search-dialog";
-import { ThemeSwitcher } from "./_components/header/theme-switcher";
+import { LayoutControls } from "../dashboard/_components/header/layout-controls";
+import { SearchDialog } from "../dashboard/_components/header/search-dialog";
+import { ThemeSwitcher } from "../dashboard/_components/header/theme-switcher";
 
-export default async function Layout({ children }: Readonly<{ children: ReactNode }>) {
+export default async function BillingLayout({ children }: Readonly<{ children: ReactNode }>) {
   const cookieStore = await cookies();
   const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
 
@@ -26,13 +26,10 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
     createClient(),
   ]);
 
-  // Fetch the authenticated Supabase user
   const {
     data: { user: authUser },
   } = await supabase.auth.getUser();
 
-  // Upsert the Prisma User row if this is their first visit after sign-up
-  // (handles the email-confirmation flow where sync-user was never called)
   let credits = 0;
   if (authUser) {
     const dbUser = await prisma.user.upsert({
@@ -49,7 +46,6 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
     credits = dbUser.credits;
   }
 
-  // Build the nav user data from live Supabase Auth — no hardcoded values
   const navUser = authUser
     ? {
         name:
@@ -65,11 +61,7 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
   return (
     <SidebarProvider
       defaultOpen={defaultOpen}
-      style={
-        {
-          "--sidebar-width": "calc(var(--spacing) * 68)",
-        } as React.CSSProperties
-      }
+      style={{ "--sidebar-width": "calc(var(--spacing) * 68)" } as React.CSSProperties}
     >
       <AppSidebar
         variant={variant}
@@ -83,14 +75,13 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
           "[html[data-content-layout=centered]_&>*]:w-full",
           "[html[data-content-layout=centered]_&>*]:max-w-screen-2xl",
           "peer-data-[variant=inset]:border",
-          "[--dashboard-header-height:--spacing(12)]",
           "min-w-0 overflow-x-clip",
         )}
       >
         <header
           className={cn(
-            "flex h-12 shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12",
-            "[html[data-navbar-style=sticky]_&]:sticky [html[data-navbar-style=sticky]_&]:top-0 [html[data-navbar-style=sticky]_&]:z-50 [html[data-navbar-style=sticky]_&]:overflow-hidden [html[data-navbar-style=sticky]_&]:rounded-t-[inherit] [html[data-navbar-style=sticky]_&]:bg-background/50 [html[data-navbar-style=sticky]_&]:backdrop-blur-md",
+            "flex h-12 shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear",
+            "[html[data-navbar-style=sticky]_&]:sticky [html[data-navbar-style=sticky]_&]:top-0 [html[data-navbar-style=sticky]_&]:z-50 [html[data-navbar-style=sticky]_&]:bg-background/50 [html[data-navbar-style=sticky]_&]:backdrop-blur-md",
           )}
         >
           <div className="flex w-full items-center justify-between px-4 lg:px-6">
@@ -109,9 +100,7 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
             </div>
           </div>
         </header>
-        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden p-4 has-data-[content-padding=false]:p-0 md:p-6 md:has-data-[content-padding=false]:p-0">
-          {children}
-        </div>
+        <div className="p-4 md:p-6">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );

@@ -1,6 +1,9 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+
 import { CircleUser, CreditCard, EllipsisVertical, LogOut, MessageSquareDot } from "lucide-react";
+import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -12,19 +15,39 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from "@/components/ui/sidebar";
+import { createClient } from "@/lib/supabase/client";
 import { getInitials } from "@/lib/utils";
 
-export function NavUser({
-  user,
-}: {
-  readonly user: {
-    readonly name: string;
-    readonly email: string;
-    readonly avatar: string;
+interface NavUserProps {
+  user: {
+    name: string;
+    email: string;
+    avatar: string;
   };
-}) {
+}
+
+export function NavUser({ user }: NavUserProps) {
   const { isMobile } = useSidebar();
+  const router = useRouter();
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      toast.error("Sign out failed. Please try again.");
+      return;
+    }
+
+    router.push("/auth/v2/login");
+    router.refresh();
+  }
 
   return (
     <SidebarMenu>
@@ -66,13 +89,17 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <CircleUser />
-                Account
+              <DropdownMenuItem asChild>
+                <a href="/dashboard/profile">
+                  <CircleUser />
+                  Account
+                </a>
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <CreditCard />
-                Billing
+              <DropdownMenuItem asChild>
+                <a href="/billing">
+                  <CreditCard />
+                  Billing
+                </a>
               </DropdownMenuItem>
               <DropdownMenuItem>
                 <MessageSquareDot />
@@ -80,7 +107,10 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={handleSignOut}
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            >
               <LogOut />
               Log out
             </DropdownMenuItem>

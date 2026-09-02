@@ -15,7 +15,6 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { APP_CONFIG } from "@/config/app-config";
-import { rootUser } from "@/data/users";
 import { sidebarItems } from "@/navigation/sidebar/sidebar-items";
 import { usePreferencesStore } from "@/stores/preferences/preferences-provider";
 
@@ -23,7 +22,20 @@ import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
 import { SupportCard } from "./support-card";
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export interface NavUserData {
+  name: string;
+  email: string;
+  avatar: string;
+}
+
+interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
+  /** Live user data fetched server-side from Supabase Auth. */
+  navUser: NavUserData;
+  /** Server-rendered credit badge node passed from the layout. */
+  creditBadge?: React.ReactNode;
+}
+
+export function AppSidebar({ navUser, creditBadge, ...props }: AppSidebarProps) {
   const { sidebarVariant, sidebarCollapsible, isSynced } = usePreferencesStore(
     useShallow((s) => ({
       sidebarVariant: s.values.sidebar_variant,
@@ -53,8 +65,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain items={sidebarItems} />
       </SidebarContent>
       <SidebarFooter>
+        {creditBadge}
         <SupportCard />
-        <NavUser user={rootUser} />
+        <NavUser user={navUser} />
       </SidebarFooter>
     </Sidebar>
   );
