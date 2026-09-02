@@ -2,6 +2,8 @@
 
 import { create } from "zustand";
 
+import { DEFAULT_MODEL_ID, type ChatModelId } from "@/config/ai-models";
+
 import type { ChatMessage, ConversationSummary } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -16,9 +18,7 @@ type ChatStore = {
   messages: ChatMessage[];
   setMessages: (messages: ChatMessage[]) => void;
   appendMessage: (message: ChatMessage) => void;
-  // Append streaming text to the last model message
   appendStreamChunk: (chunk: string) => void;
-  // Finalize the streaming message (clear the streaming flag)
   finalizeStream: () => void;
 
   // Whether a generation is currently in flight
@@ -35,6 +35,10 @@ type ChatStore = {
   prependConversation: (c: ConversationSummary) => void;
   removeConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
+
+  // Currently selected Gemini model
+  selectedModelId: ChatModelId;
+  setSelectedModelId: (id: ChatModelId) => void;
 };
 
 export const useChatStore = create<ChatStore>((set) => ({
@@ -54,12 +58,11 @@ export const useChatStore = create<ChatStore>((set) => ({
       return { messages: msgs };
     }),
   finalizeStream: () =>
-    set((s) => {
-      const msgs = s.messages.map((m) =>
+    set((s) => ({
+      messages: s.messages.map((m) =>
         m.streaming ? { ...m, streaming: false } : m,
-      );
-      return { messages: msgs };
-    }),
+      ),
+    })),
 
   isStreaming: false,
   setIsStreaming: (v) => set({ isStreaming: v }),
@@ -81,4 +84,8 @@ export const useChatStore = create<ChatStore>((set) => ({
         c.id === id ? { ...c, title } : c,
       ),
     })),
+
+  // Model selection — persists for the whole session
+  selectedModelId: DEFAULT_MODEL_ID,
+  setSelectedModelId: (id) => set({ selectedModelId: id }),
 }));

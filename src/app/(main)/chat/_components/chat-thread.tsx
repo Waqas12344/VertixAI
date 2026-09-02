@@ -29,8 +29,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { CHAT_MODELS, findModel, type ChatModelId } from "@/config/ai-models";
 
 import type { ChatMessage } from "./types";
 import { useChatStore } from "./use-chat-store";
@@ -284,7 +292,7 @@ function EmptyState({ onSelectPrompt }: { onSelectPrompt: (p: string) => void })
       <div>
         <h2 className="font-semibold text-xl">How can I help you today?</h2>
         <p className="mt-1.5 text-muted-foreground text-sm">
-          Powered by Gemini 3.6 Flash — ask me anything.
+          Powered by Gemini — ask me anything.
         </p>
       </div>
       <div className="grid w-full max-w-lg grid-cols-1 gap-2 sm:grid-cols-2">
@@ -342,6 +350,48 @@ function InsufficientCreditsModal({ open, onClose }: { open: boolean; onClose: (
 }
 
 // ---------------------------------------------------------------------------
+// Model selector dropdown — sits above the textarea inside the composer
+// ---------------------------------------------------------------------------
+function ModelSelector() {
+  const { selectedModelId, setSelectedModelId, isStreaming } = useChatStore();
+
+  return (
+    <Select
+      value={selectedModelId}
+      onValueChange={(v) => setSelectedModelId(v as ChatModelId)}
+      disabled={isStreaming}
+    >
+      <SelectTrigger
+        className="h-7 w-auto   gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none focus:ring-0 focus-visible:ring-0"
+        aria-label="Select AI model"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="start" className="w-64">
+        {CHAT_MODELS.map((m) => (
+          <SelectItem key={m.id} value={m.id} className="py-2.5">
+            <div className="flex w-full items-center justify-between gap-3">
+              <div>
+                <p className="font-medium text-sm leading-none">{m.name}</p>
+                <p className="mt-0.5 text-muted-foreground text-xs">{m.description}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <Badge variant="secondary" className="text-[10px]">
+                  {m.badge}
+                </Badge>
+                <span className="text-muted-foreground text-[10px] tabular-nums">
+                  {m.creditCost}cr
+                </span>
+              </div>
+            </div>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Composer — fixed at the bottom, never scrolls
 // ---------------------------------------------------------------------------
 function ChatComposer({
@@ -357,7 +407,13 @@ function ChatComposer({
   const [showCreditsModal, setShowCreditsModal] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isStreaming = useChatStore((s) => s.isStreaming);
-  const isDisabled = credits === 0 && !isStreaming;
+  const selectedModelId = useChatStore((s) => s.selectedModelId);
+
+  // Resolve cost from config so the badge stays in sync with the selector
+  const currentModel = findModel(selectedModelId);
+  const creditCost = currentModel?.creditCost ?? 1;
+
+  const isDisabled = credits < creditCost && !isStreaming;
 
   // Auto-resize textarea
   useEffect(() => {
@@ -369,7 +425,7 @@ function ChatComposer({
 
   function handleSubmit() {
     if (isStreaming) return;
-    if (credits === 0) {
+    if (credits < creditCost) {
       setShowCreditsModal(true);
       return;
     }
@@ -394,62 +450,71 @@ function ChatComposer({
         onClose={() => setShowCreditsModal(false)}
       />
 
-      {/* shrink-0 ensures this bar never collapses when content grows */}
       <div className="shrink-0 border-t bg-background px-4 pb-4 pt-3">
         {isDisabled && (
           <Alert variant="destructive" className="mb-3">
             <AlertCircle className="size-4" />
             <AlertDescription>
-              You have 0 credits remaining.{" "}
+              Not enough credits for this model ({creditCost} required).{" "}
               <a href="/billing" className="font-medium underline">
-                Top up to continue chatting.
+                Top up to continue.
               </a>
             </AlertDescription>
           </Alert>
         )}
 
-        <div className="relative flex items-end gap-2 rounded-2xl border bg-background px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-ring">
-          <Textarea
-            ref={textareaRef}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              isDisabled
-                ? "No credits remaining…"
-                : "Message VertixAI… (Enter to send, Shift+Enter for newline)"
-            }
-            disabled={isDisabled}
-            rows={1}
-            className="max-h-48 min-h-[2rem] flex-1 resize-none border-0 bg-transparent px-1 py-0 text-sm shadow-none focus-visible:ring-0"
-          />
+        <div className="rounded-2xl border bg-background shadow-sm focus-within:ring-2 focus-within:ring-ring">
+          {/* Top row: model selector */}
+          <div className="flex items-center border-b px-2 py-1 justify-end">
+            <ModelSelector />
+          </div>
 
-          <div className="flex shrink-0 items-center gap-1.5 self-end pb-0.5">
-            <Badge variant="secondary" className="hidden gap-1 text-[10px] sm:flex">
-              <Coins className="size-2.5" />1 credit
-            </Badge>
+          {/* Bottom row: textarea + action buttons */}
+          <div className="flex items-end gap-2 px-3 py-2">
+            <Textarea
+              ref={textareaRef}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                isDisabled
+                  ? `Need ${creditCost} credits — not enough balance…`
+                  : "Message VertixAI… (Enter to send, Shift+Enter for newline)"
+              }
+              disabled={isDisabled}
+              rows={1}
+              className="max-h-48 min-h-[2rem] flex-1 resize-none border-0 bg-transparent px-1 py-0 text-sm shadow-none focus-visible:ring-0"
+            />
 
-            {isStreaming ? (
-              <Button
-                size="icon-sm"
-                variant="destructive"
-                onClick={onAbort}
-                aria-label="Stop generation"
-                className="size-8"
-              >
-                <Square className="size-3.5" />
-              </Button>
-            ) : (
-              <Button
-                size="icon-sm"
-                onClick={handleSubmit}
-                disabled={isDisabled || !value.trim()}
-                aria-label="Send message"
-                className="size-8"
-              >
-                <Sparkles className="size-3.5" />
-              </Button>
-            )}
+            <div className="flex shrink-0 items-center gap-1.5 self-end pb-0.5">
+              {/* Dynamic cost badge — updates when model changes */}
+              <Badge variant="secondary" className="hidden gap-1 text-[10px] sm:flex">
+                <Coins className="size-2.5" />
+                {creditCost} {creditCost === 1 ? "credit" : "credits"}
+              </Badge>
+
+              {isStreaming ? (
+                <Button
+                  size="icon-sm"
+                  variant="destructive"
+                  onClick={onAbort}
+                  aria-label="Stop generation"
+                  className="size-8"
+                >
+                  <Square className="size-3.5" />
+                </Button>
+              ) : (
+                <Button
+                  size="icon-sm"
+                  onClick={handleSubmit}
+                  disabled={isDisabled || !value.trim()}
+                  aria-label="Send message"
+                  className="size-8"
+                >
+                  <Sparkles className="size-3.5" />
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -474,6 +539,7 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
     messages,
     activeConversationId,
     isStreaming,
+    selectedModelId,
     appendMessage,
     appendStreamChunk,
     finalizeStream,
@@ -526,6 +592,7 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
           body: JSON.stringify({
             prompt,
             conversationId: activeConversationId ?? undefined,
+            model: selectedModelId,
           }),
           signal: ac.signal,
         });
@@ -581,6 +648,7 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
     },
     [
       isStreaming,
+      selectedModelId,
       activeConversationId,
       conversations,
       appendMessage,

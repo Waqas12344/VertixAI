@@ -29,10 +29,10 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 
 import type { ConversationSummary, DateGroup } from "./types";
 import { useChatStore } from "./use-chat-store";
@@ -122,6 +122,11 @@ function RenameInput({
 
 // ---------------------------------------------------------------------------
 // Single conversation row
+//
+// Key constraint: DropdownMenuTrigger renders a <button>. SidebarMenuButton
+// also renders a <button>. Nesting them causes a hydration error.
+// Solution: use a plain <div> row with a plain <button> for the title and
+// the DropdownMenuTrigger as a separate sibling — never nested.
 // ---------------------------------------------------------------------------
 function ConversationItem({
   conversation,
@@ -155,23 +160,30 @@ function ConversationItem({
 
   return (
     <SidebarMenuItem>
-      {/* group/item wraps both the button and the ⋯ trigger */}
-      <div className="group/item flex w-full items-center truncate">
-        <SidebarMenuButton
-          isActive={isActive}
+      <div className="group/item flex w-full items-center gap-0 rounded-md px-1 hover:bg-sidebar-accent">
+
+        {/* Title — plain <button>, never contains another button */}
+        <button
+          type="button"
           onClick={onSelect}
-          className="min-w-0 flex-1 max-w-60 text-xs overflow-hidden "
-          tooltip={conversation.title}
+          title={conversation.title}
+          className={cn(
+            "min-w-0 max-w-50 flex-1 truncate rounded-md py-1.5 pl-2 pr-1 text-left text-xs",
+            "text-sidebar-foreground transition-colors",
+            "hover:text-sidebar-accent-foreground",
+            isActive && "font-medium text-sidebar-accent-foreground",
+          )}
         >
-          {/* Explicit block + truncate — title never escapes this span */}
-          <span className="block w-full truncate">{conversation.title}</span>
-             {/* ⋯ button: flows inline, only visible on hover / menu open */}
+          {conversation.title}
+        </button>
+
+        {/* ⋯ options — sibling div, dropdown trigger is NOT inside the title button */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon-sm"
-              className="ml-auto size-6 shrink-0 opacity-0 group-hover/item:opacity-100 data-[state=open]:opacity-100"
+              className="size-6 shrink-0 opacity-0 group-hover/item:opacity-100 data-[state=open]:opacity-100"
               aria-label="Conversation options"
             >
               <MoreHorizontal className="size-3.5" />
@@ -189,9 +201,7 @@ function ConversationItem({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        </SidebarMenuButton>
 
-     
       </div>
     </SidebarMenuItem>
   );
@@ -213,16 +223,13 @@ export function ChatSidebar() {
     renameConversation,
   } = useChatStore();
 
-  // Load conversation list on mount
   useEffect(() => {
     fetch("/api/ai/conversations")
       .then((r) => r.json())
       .then((data) => {
         if (data.conversations) setConversations(data.conversations);
       })
-      .catch(() => {
-        /* silently ignore */
-      });
+      .catch(() => {/* silently ignore */});
   }, [setConversations]);
 
   function handleNewChat() {
@@ -240,7 +247,7 @@ export function ChatSidebar() {
         setMessages(data.messages ?? []);
       }
     } catch {
-      // empty thread is fine — user can keep chatting
+      // empty thread is fine
     }
   }
 
@@ -273,12 +280,9 @@ export function ChatSidebar() {
       collapsible="offcanvas"
       className="top-(--header-height) h-[calc(100svh-var(--header-height))]! **:data-[sidebar=sidebar]:bg-background"
     >
-      {/* ------------------------------------------------------------------ */}
-      {/* Sidebar header: close toggle + New Chat button side by side         */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Header: close toggle + New Chat */}
       <SidebarHeader className="border-b px-2 py-2">
         <div className="flex items-center gap-1">
-          {/* Close / collapse the sidebar from inside */}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -289,7 +293,6 @@ export function ChatSidebar() {
             <PanelLeftClose className="size-4" />
           </Button>
 
-          {/* New Chat — takes remaining space */}
           <Button
             variant="ghost"
             size="sm"
@@ -302,9 +305,7 @@ export function ChatSidebar() {
         </div>
       </SidebarHeader>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Conversation history list                                           */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Conversation history */}
       <SidebarContent className="overflow-hidden">
         <ScrollArea className="h-full">
           {groups.length === 0 ? (
