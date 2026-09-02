@@ -5,6 +5,7 @@ import {
   Check,
   MessageSquarePlus,
   MoreHorizontal,
+  PanelLeftClose,
   Pencil,
   Trash2,
   X,
@@ -32,7 +33,6 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { cn } from "@/lib/utils";
 
 import type { ConversationSummary, DateGroup } from "./types";
 import { useChatStore } from "./use-chat-store";
@@ -48,12 +48,7 @@ function getDateGroup(dateStr: string): DateGroup {
   return "Older";
 }
 
-const GROUP_ORDER: DateGroup[] = [
-  "Today",
-  "Yesterday",
-  "Previous 7 Days",
-  "Older",
-];
+const GROUP_ORDER: DateGroup[] = ["Today", "Yesterday", "Previous 7 Days", "Older"];
 
 function groupConversations(
   conversations: ConversationSummary[],
@@ -91,7 +86,7 @@ function RenameInput({
 
   return (
     <form
-      className="flex flex-1 items-center gap-1"
+      className="flex flex-1 items-center gap-1 px-1"
       onSubmit={(e) => {
         e.preventDefault();
         const trimmed = value.trim();
@@ -143,59 +138,60 @@ function ConversationItem({
 }) {
   const [renaming, setRenaming] = useState(false);
 
+  if (renaming) {
+    return (
+      <SidebarMenuItem>
+        <RenameInput
+          initialValue={conversation.title}
+          onCommit={(title) => {
+            onRename(title);
+            setRenaming(false);
+          }}
+          onCancel={() => setRenaming(false)}
+        />
+      </SidebarMenuItem>
+    );
+  }
+
   return (
     <SidebarMenuItem>
-      <div className={cn("group/item relative flex w-full items-center gap-1")}>
-        {renaming ? (
-          <div className="flex flex-1 items-center gap-1 px-2 py-1">
-            <RenameInput
-              initialValue={conversation.title}
-              onCommit={(title) => {
-                onRename(title);
-                setRenaming(false);
-              }}
-              onCancel={() => setRenaming(false)}
-            />
-          </div>
-        ) : (
-          <>
-            <SidebarMenuButton
-              isActive={isActive}
-              onClick={onSelect}
-              className="flex-1 truncate text-left text-sm"
-              tooltip={conversation.title}
+      {/* group/item wraps both the button and the ⋯ trigger */}
+      <div className="group/item flex w-full items-center truncate">
+        <SidebarMenuButton
+          isActive={isActive}
+          onClick={onSelect}
+          className="min-w-0 flex-1 max-w-60 text-xs overflow-hidden "
+          tooltip={conversation.title}
+        >
+          {/* Explicit block + truncate — title never escapes this span */}
+          <span className="block w-full truncate">{conversation.title}</span>
+             {/* ⋯ button: flows inline, only visible on hover / menu open */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="ml-auto size-6 shrink-0 opacity-0 group-hover/item:opacity-100 data-[state=open]:opacity-100"
+              aria-label="Conversation options"
             >
-              <span className="truncate">{conversation.title}</span>
-            </SidebarMenuButton>
+              <MoreHorizontal className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-36">
+            <DropdownMenuItem onSelect={() => setRenaming(true)}>
+              <Pencil className="size-3.5" />
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+              <Trash2 className="size-3.5" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        </SidebarMenuButton>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="absolute right-1 top-1/2 mr-0.5 size-6 -translate-y-1/2 opacity-0 group-hover/item:opacity-100 data-[state=open]:opacity-100"
-                  aria-label="Conversation options"
-                >
-                  <MoreHorizontal className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-36">
-                <DropdownMenuItem onSelect={() => setRenaming(true)}>
-                  <Pencil className="size-3.5" />
-                  Rename
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={onDelete}
-                >
-                  <Trash2 className="size-3.5" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        )}
+     
       </div>
     </SidebarMenuItem>
   );
@@ -205,8 +201,7 @@ function ConversationItem({
 // ChatSidebar
 // ---------------------------------------------------------------------------
 export function ChatSidebar() {
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
+  const { toggleSidebar } = useSidebar();
 
   const {
     conversations,
@@ -225,7 +220,9 @@ export function ChatSidebar() {
       .then((data) => {
         if (data.conversations) setConversations(data.conversations);
       })
-      .catch(() => {/* silently ignore network errors */});
+      .catch(() => {
+        /* silently ignore */
+      });
   }, [setConversations]);
 
   function handleNewChat() {
@@ -236,7 +233,6 @@ export function ChatSidebar() {
   async function handleSelect(id: string) {
     if (id === activeConversationId) return;
     setActiveConversationId(id);
-    // Load messages for this conversation
     try {
       const res = await fetch(`/api/ai/messages?conversationId=${id}`);
       if (res.ok) {
@@ -244,7 +240,7 @@ export function ChatSidebar() {
         setMessages(data.messages ?? []);
       }
     } catch {
-      // Will show empty thread — user can still continue chatting
+      // empty thread is fine — user can keep chatting
     }
   }
 
@@ -277,33 +273,53 @@ export function ChatSidebar() {
       collapsible="offcanvas"
       className="top-(--header-height) h-[calc(100svh-var(--header-height))]! **:data-[sidebar=sidebar]:bg-background"
     >
-      <SidebarHeader className="border-b px-3 py-3">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full justify-start gap-2"
-          onClick={handleNewChat}
-        >
-          <MessageSquarePlus className="size-4 shrink-0" />
-          {!isCollapsed && <span>New Chat</span>}
-        </Button>
+      {/* ------------------------------------------------------------------ */}
+      {/* Sidebar header: close toggle + New Chat button side by side         */}
+      {/* ------------------------------------------------------------------ */}
+      <SidebarHeader className="border-b px-2 py-2">
+        <div className="flex items-center gap-1">
+          {/* Close / collapse the sidebar from inside */}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={toggleSidebar}
+            aria-label="Close sidebar"
+            className="shrink-0"
+          >
+            <PanelLeftClose className="size-4" />
+          </Button>
+
+          {/* New Chat — takes remaining space */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1 justify-start gap-2 font-normal"
+            onClick={handleNewChat}
+          >
+            <MessageSquarePlus className="size-4 shrink-0" />
+            <span className="truncate">New Chat</span>
+          </Button>
+        </div>
       </SidebarHeader>
 
-      <SidebarContent>
+      {/* ------------------------------------------------------------------ */}
+      {/* Conversation history list                                           */}
+      {/* ------------------------------------------------------------------ */}
+      <SidebarContent className="overflow-hidden">
         <ScrollArea className="h-full">
           {groups.length === 0 ? (
-            <div className="px-4 py-8 text-center text-muted-foreground text-xs">
+            <div className="px-4 py-10 text-center text-muted-foreground text-xs leading-5">
               No conversations yet.
               <br />
               Start a new chat above.
             </div>
           ) : (
             groups.map(({ group, items }) => (
-              <SidebarGroup key={group}>
-                <SidebarGroupLabel className="text-xs font-normal text-muted-foreground">
+              <SidebarGroup key={group} className="py-1">
+                <SidebarGroupLabel className="px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
                   {group}
                 </SidebarGroupLabel>
-                <SidebarMenu className="gap-0.5">
+                <SidebarMenu className="gap-0">
                   {items.map((conv) => (
                     <ConversationItem
                       key={conv.id}

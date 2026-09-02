@@ -27,7 +27,7 @@ export default async function ChatPage() {
   });
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <main className="flex   flex-1 flex-col overflow-hidden">
       <ChatThread credits={dbUser.credits} />
     </main>
   );

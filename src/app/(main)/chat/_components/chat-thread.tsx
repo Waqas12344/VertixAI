@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -52,7 +53,6 @@ function MarkdownContent({ content }: { content: string }) {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        // Inline code
         code({ className, children, ...props }) {
           const isBlock = className?.startsWith("language-");
           const language = className?.replace("language-", "") ?? "";
@@ -88,7 +88,6 @@ function MarkdownContent({ content }: { content: string }) {
             </div>
           );
         },
-        // Blockquote
         blockquote({ children }) {
           return (
             <blockquote className="my-2 border-l-4 border-muted-foreground/30 pl-3 text-muted-foreground italic">
@@ -96,13 +95,10 @@ function MarkdownContent({ content }: { content: string }) {
             </blockquote>
           );
         },
-        // Tables
         table({ children }) {
           return (
             <div className="my-2 overflow-x-auto">
-              <table className="min-w-full border-collapse text-sm">
-                {children}
-              </table>
+              <table className="min-w-full border-collapse text-sm">{children}</table>
             </div>
           );
         },
@@ -114,11 +110,8 @@ function MarkdownContent({ content }: { content: string }) {
           );
         },
         td({ children }) {
-          return (
-            <td className="border px-3 py-1.5 text-xs">{children}</td>
-          );
+          return <td className="border px-3 py-1.5 text-xs">{children}</td>;
         },
-        // Links
         a({ href, children }) {
           return (
             <a
@@ -131,11 +124,9 @@ function MarkdownContent({ content }: { content: string }) {
             </a>
           );
         },
-        // Paragraphs
         p({ children }) {
           return <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>;
         },
-        // Lists
         ul({ children }) {
           return <ul className="mb-2 list-disc pl-5 text-sm">{children}</ul>;
         },
@@ -145,7 +136,6 @@ function MarkdownContent({ content }: { content: string }) {
         li({ children }) {
           return <li className="mb-0.5">{children}</li>;
         },
-        // Headings
         h1({ children }) {
           return <h1 className="mb-2 mt-3 font-bold text-lg">{children}</h1>;
         },
@@ -163,7 +153,7 @@ function MarkdownContent({ content }: { content: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Copy to clipboard button
+// Copy button
 // ---------------------------------------------------------------------------
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -187,10 +177,38 @@ function CopyButton({ text }: { text: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Typing indicator — three bouncing dots shown before any text arrives
+// ---------------------------------------------------------------------------
+function TypingIndicator() {
+  return (
+    <div className="flex items-center gap-1 px-1 py-1" aria-label="AI is typing">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="size-2 rounded-full bg-muted-foreground/50"
+          style={{
+            animation: "typing-bounce 1.2s ease-in-out infinite",
+            animationDelay: `${i * 0.2}s`,
+          }}
+        />
+      ))}
+      <style>{`
+        @keyframes typing-bounce {
+          0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+          30% { transform: translateY(-6px); opacity: 1; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Single message bubble
 // ---------------------------------------------------------------------------
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  // Show typing indicator when the assistant bubble exists but content is still empty
+  const isTyping = !isUser && message.streaming && message.content === "";
 
   return (
     <div
@@ -217,22 +235,30 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       >
         {isUser ? (
           <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+        ) : isTyping ? (
+          // No text yet — show animated dots
+          <TypingIndicator />
         ) : (
           <>
             <MarkdownContent content={message.content} />
+            {/* Blinking cursor while more text is streaming in */}
             {message.streaming && (
               <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-current align-middle" />
             )}
           </>
         )}
-        <p
-          className={cn(
-            "mt-1 text-right text-[10px] leading-none",
-            isUser ? "text-primary-foreground/60" : "text-muted-foreground",
-          )}
-        >
-          {format(new Date(message.createdAt), "h:mm a")}
-        </p>
+
+        {/* Only show timestamp once content has arrived */}
+        {!isTyping && (
+          <p
+            className={cn(
+              "mt-1 text-right text-[10px] leading-none",
+              isUser ? "text-primary-foreground/60" : "text-muted-foreground",
+            )}
+          >
+            {format(new Date(message.createdAt), "h:mm a")}
+          </p>
+        )}
       </div>
 
       {isUser && (
@@ -249,11 +275,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 // ---------------------------------------------------------------------------
 // Empty state — greeting + suggested prompts
 // ---------------------------------------------------------------------------
-function EmptyState({
-  onSelectPrompt,
-}: {
-  onSelectPrompt: (prompt: string) => void;
-}) {
+function EmptyState({ onSelectPrompt }: { onSelectPrompt: (p: string) => void }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-12 text-center">
       <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10">
@@ -285,13 +307,7 @@ function EmptyState({
 // ---------------------------------------------------------------------------
 // Insufficient credits modal
 // ---------------------------------------------------------------------------
-function InsufficientCreditsModal({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+function InsufficientCreditsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
 
   return (
@@ -303,8 +319,8 @@ function InsufficientCreditsModal({
             Out of Credits
           </DialogTitle>
           <DialogDescription>
-            You don&apos;t have enough credits to send a message. Each chat
-            message costs 1 credit. Top up your balance to continue.
+            You don&apos;t have enough credits to send a message. Each chat message
+            costs 1 credit. Top up your balance to continue.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2">
@@ -326,7 +342,7 @@ function InsufficientCreditsModal({
 }
 
 // ---------------------------------------------------------------------------
-// Auto-growing textarea composer
+// Composer — fixed at the bottom, never scrolls
 // ---------------------------------------------------------------------------
 function ChatComposer({
   credits,
@@ -361,7 +377,6 @@ function ChatComposer({
     if (!trimmed) return;
     onSubmit(trimmed);
     setValue("");
-    // Reset height
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   }
 
@@ -379,7 +394,8 @@ function ChatComposer({
         onClose={() => setShowCreditsModal(false)}
       />
 
-      <div className="border-t bg-background px-4 pb-4 pt-3">
+      {/* shrink-0 ensures this bar never collapses when content grows */}
+      <div className="shrink-0 border-t bg-background px-4 pb-4 pt-3">
         {isDisabled && (
           <Alert variant="destructive" className="mb-3">
             <AlertCircle className="size-4" />
@@ -405,14 +421,11 @@ function ChatComposer({
             }
             disabled={isDisabled}
             rows={1}
-            className="max-h-48 min-h-[2rem] flex-1 resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
+            className="max-h-48 min-h-[2rem] flex-1 resize-none border-0 bg-transparent px-1 py-0 text-sm shadow-none focus-visible:ring-0"
           />
 
           <div className="flex shrink-0 items-center gap-1.5 self-end pb-0.5">
-            <Badge
-              variant="secondary"
-              className="hidden gap-1 text-[10px] sm:flex"
-            >
+            <Badge variant="secondary" className="hidden gap-1 text-[10px] sm:flex">
               <Coins className="size-2.5" />1 credit
             </Badge>
 
@@ -473,9 +486,8 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
   } = useChatStore();
 
   const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new messages / stream chunks
+  // Auto-scroll to bottom whenever messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -484,7 +496,6 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
     async (prompt: string) => {
       if (isStreaming) return;
 
-      // Optimistic user message
       const userMsg: ChatMessage = {
         id: Math.random().toString(36).slice(2),
         role: "user",
@@ -492,7 +503,7 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
         createdAt: new Date().toISOString(),
       };
 
-      // Placeholder streaming model message
+      // Empty content + streaming:true → shows TypingIndicator immediately
       const assistantMsg: ChatMessage = {
         id: Math.random().toString(36).slice(2),
         role: "model",
@@ -524,15 +535,12 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
           throw new Error(errData.error ?? `HTTP ${res.status}`);
         }
 
-        // If this was a new conversation, capture the id from response headers
+        // Capture new conversation id from response header
         const newConvId = res.headers.get("X-Conversation-Id");
         const newConvTitle = res.headers.get("X-Conversation-Title");
         if (newConvId && !activeConversationId) {
           setActiveConversationId(newConvId);
-          // Add to sidebar list
-          const title = newConvTitle
-            ? decodeURIComponent(newConvTitle)
-            : "New Chat";
+          const title = newConvTitle ? decodeURIComponent(newConvTitle) : "New Chat";
           const alreadyExists = conversations.some((c) => c.id === newConvId);
           if (!alreadyExists) {
             prependConversation({
@@ -545,7 +553,7 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
           }
         }
 
-        // Stream the response body
+        // Pipe stream chunks — typing indicator disappears on first chunk
         const reader = res.body?.getReader();
         const decoder = new TextDecoder();
         if (reader) {
@@ -557,9 +565,8 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
         }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
-          // User cancelled — leave partial response in place
+          // User cancelled — partial response stays visible
         } else {
-          // Replace the empty assistant bubble with an error note
           appendStreamChunk(
             err instanceof Error && err.message === "insufficient_credits"
               ? "\n\n_You have run out of credits. Please top up at /billing._"
@@ -591,26 +598,26 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
   }
 
   return (
-    <div className={cn("flex h-full flex-col", className)}>
-      {/* Message canvas */}
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        <ScrollArea ref={scrollAreaRef} className="h-full">
-          <div className="flex min-h-full flex-col">
-            {messages.length === 0 ? (
-              <EmptyState onSelectPrompt={(p) => sendMessage(p)} />
-            ) : (
-              <div className="flex flex-col gap-5 py-6">
-                {messages.map((msg) => (
-                  <MessageBubble key={msg.id} message={msg} />
-                ))}
-              </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
-        </ScrollArea>
+    // h-full + flex-col so scroll area takes all remaining space and composer is pinned
+    <div className={cn("flex h-full min-h-0 flex-col", className)}>
+      {/* Scrollable message canvas — flex-1 + min-h-0 is the key to preventing overflow */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-full flex-col">
+          {messages.length === 0 ? (
+            <EmptyState onSelectPrompt={(p) => sendMessage(p)} />
+          ) : (
+            <div className="flex flex-col gap-5 py-6">
+              {messages.map((msg) => (
+                <MessageBubble key={msg.id} message={msg} />
+              ))}
+            </div>
+          )}
+          {/* Scroll anchor */}
+          <div ref={bottomRef} className="h-px" />
+        </div>
       </div>
 
-      {/* Input bar */}
+      {/* Composer — shrink-0 keeps it fixed at the bottom */}
       <ChatComposer
         credits={credits}
         onSubmit={sendMessage}
