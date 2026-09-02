@@ -1,32 +1,49 @@
-import { Bell, MessageSquarePlus, Search, Settings } from "lucide-react";
+"use client";
+
+import { MessageSquarePlus, PanelLeft, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { useSidebar } from "@/components/ui/sidebar";
+
+import { useChatStore } from "./use-chat-store";
 
 export function ChatHeader() {
+  const { toggleSidebar } = useSidebar();
+  const { setActiveConversationId, setMessages } = useChatStore();
+
+  function handleNewChat() {
+    setActiveConversationId(null);
+    setMessages([]);
+  }
+
   return (
     <header className="sticky top-0 z-50 flex h-(--header-height) w-full items-center border-b bg-background">
       <div className="flex h-full w-full items-center justify-between gap-3 px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <h1 className="text-nowrap font-medium text-base">Studio Chat</h1>
-          <InputGroup className="h-7 w-full max-w-sm">
-            <InputGroupInput className="h-7" placeholder="Search conversations..." />
-            <InputGroupAddon>
-              <Search />
-            </InputGroupAddon>
-          </InputGroup>
+        {/* Left: sidebar toggle + brand */}
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={toggleSidebar}
+            aria-label="Toggle chat history sidebar"
+          >
+            <PanelLeft className="size-4" />
+          </Button>
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="size-4 text-primary" />
+            <span className="font-semibold text-sm">VertixAI Chat</span>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" aria-label="New conversation">
-            <MessageSquarePlus />
-          </Button>
-          <Button variant="ghost" size="icon-sm" aria-label="Notifications">
-            <Bell />
-          </Button>
-          <Button variant="ghost" size="icon-sm" aria-label="Settings">
-            <Settings />
-          </Button>
-        </div>
+
+        {/* Right: new chat button */}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={handleNewChat}
+          aria-label="New conversation"
+        >
+          <MessageSquarePlus className="size-4" />
+        </Button>
       </div>
     </header>
   );

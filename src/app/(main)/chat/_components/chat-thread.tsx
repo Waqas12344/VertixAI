@@ -1,262 +1,621 @@
 "use client";
 
+import { format } from "date-fns";
 import {
-  AlarmClock,
-  ArrowLeft,
+  AlertCircle,
+  Bot,
+  Coins,
   Copy,
-  Flag,
-  Link,
-  MoreHorizontal,
-  Paperclip,
-  PhoneCall,
-  Send,
-  Smile,
+  Lightbulb,
   Sparkles,
-  Tag,
-  Type,
-  UserRound,
+  Square,
+  User,
 } from "lucide-react";
-
-import { Avatar, AvatarBadge, AvatarFallback } from "@/components/ui/avatar";
-import { Bubble, BubbleContent, BubbleGroup, BubbleReactions } from "@/components/ui/bubble";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
-import { Marker, MarkerContent } from "@/components/ui/marker";
-import { Message, MessageAvatar, MessageContent, MessageFooter } from "@/components/ui/message";
-import {
-  MessageScroller,
-  MessageScrollerButton,
-  MessageScrollerContent,
-  MessageScrollerItem,
-  MessageScrollerProvider,
-  MessageScrollerViewport,
-} from "@/components/ui/message-scroller";
-import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn, getInitials } from "@/lib/utils";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
-import { type Message as ChatMessage, type Contact, currentUser } from "./data";
+import type { ChatMessage } from "./types";
+import { useChatStore } from "./use-chat-store";
 
-interface ChatThreadProps {
-  contact: Contact;
-  messages: ChatMessage[];
-  onOpenContact?: () => void;
-  onBack?: () => void;
-  showBackButton?: boolean;
-  className?: string;
+// ---------------------------------------------------------------------------
+// Suggested prompts shown on empty state
+// ---------------------------------------------------------------------------
+const SUGGESTED_PROMPTS = [
+  "Explain quantum computing in simple terms",
+  "Write a Python script to parse a CSV file",
+  "What are the best practices for REST API design?",
+  "Draft a professional email declining a meeting",
+];
+
+// ---------------------------------------------------------------------------
+// Markdown renderer with syntax-highlighted code blocks
+// ---------------------------------------------------------------------------
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        // Inline code
+        code({ className, children, ...props }) {
+          const isBlock = className?.startsWith("language-");
+          const language = className?.replace("language-", "") ?? "";
+          const codeStr = String(children).replace(/\n$/, "");
+
+          if (!isBlock) {
+            return (
+              <code
+                className="rounded bg-muted px-1 py-0.5 font-mono text-xs"
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          }
+
+          return (
+            <div className="group/code relative my-2">
+              {language && (
+                <div className="flex items-center justify-between rounded-t-md border border-b-0 bg-muted px-3 py-1">
+                  <span className="text-muted-foreground text-xs">{language}</span>
+                  <CopyButton text={codeStr} />
+                </div>
+              )}
+              <pre
+                className={cn(
+                  "overflow-x-auto rounded-md border bg-muted p-3 font-mono text-xs leading-relaxed",
+                  language && "rounded-t-none",
+                )}
+              >
+                <code>{children}</code>
+              </pre>
+            </div>
+          );
+        },
+        // Blockquote
+        blockquote({ children }) {
+          return (
+            <blockquote className="my-2 border-l-4 border-muted-foreground/30 pl-3 text-muted-foreground italic">
+              {children}
+            </blockquote>
+          );
+        },
+        // Tables
+        table({ children }) {
+          return (
+            <div className="my-2 overflow-x-auto">
+              <table className="min-w-full border-collapse text-sm">
+                {children}
+              </table>
+            </div>
+          );
+        },
+        th({ children }) {
+          return (
+            <th className="border bg-muted px-3 py-1.5 text-left font-medium text-xs">
+              {children}
+            </th>
+          );
+        },
+        td({ children }) {
+          return (
+            <td className="border px-3 py-1.5 text-xs">{children}</td>
+          );
+        },
+        // Links
+        a({ href, children }) {
+          return (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline underline-offset-2 hover:opacity-80"
+            >
+              {children}
+            </a>
+          );
+        },
+        // Paragraphs
+        p({ children }) {
+          return <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>;
+        },
+        // Lists
+        ul({ children }) {
+          return <ul className="mb-2 list-disc pl-5 text-sm">{children}</ul>;
+        },
+        ol({ children }) {
+          return <ol className="mb-2 list-decimal pl-5 text-sm">{children}</ol>;
+        },
+        li({ children }) {
+          return <li className="mb-0.5">{children}</li>;
+        },
+        // Headings
+        h1({ children }) {
+          return <h1 className="mb-2 mt-3 font-bold text-lg">{children}</h1>;
+        },
+        h2({ children }) {
+          return <h2 className="mb-2 mt-3 font-semibold text-base">{children}</h2>;
+        },
+        h3({ children }) {
+          return <h3 className="mb-1.5 mt-2.5 font-semibold text-sm">{children}</h3>;
+        },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
 }
 
-export function ChatThread({ contact, messages, onOpenContact, onBack, showBackButton, className }: ChatThreadProps) {
+// ---------------------------------------------------------------------------
+// Copy to clipboard button
+// ---------------------------------------------------------------------------
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
   return (
-    <div className={cn("flex h-full flex-col py-3", className)}>
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-4 px-2">
-          <div className="flex items-center gap-3">
-            {showBackButton && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="md:hidden"
-                aria-label="Back to conversations"
-                onClick={onBack}
-              >
-                <ArrowLeft />
-              </Button>
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="rounded px-1.5 py-0.5 text-muted-foreground text-xs hover:bg-background hover:text-foreground"
+      aria-label="Copy code"
+    >
+      {copied ? "Copied!" : <Copy className="size-3" />}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Single message bubble
+// ---------------------------------------------------------------------------
+function MessageBubble({ message }: { message: ChatMessage }) {
+  const isUser = message.role === "user";
+
+  return (
+    <div
+      className={cn(
+        "flex w-full gap-3 px-4",
+        isUser ? "justify-end" : "justify-start",
+      )}
+    >
+      {!isUser && (
+        <Avatar className="mt-0.5 size-7 shrink-0">
+          <AvatarFallback className="bg-primary/10 text-primary">
+            <Bot className="size-4" />
+          </AvatarFallback>
+        </Avatar>
+      )}
+
+      <div
+        className={cn(
+          "max-w-[75%] rounded-2xl px-4 py-2.5 text-sm",
+          isUser
+            ? "rounded-br-sm bg-primary text-primary-foreground"
+            : "rounded-bl-sm bg-muted text-foreground",
+        )}
+      >
+        {isUser ? (
+          <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+        ) : (
+          <>
+            <MarkdownContent content={message.content} />
+            {message.streaming && (
+              <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-current align-middle" />
             )}
-            <Avatar className="size-8">
-              <AvatarFallback className="bg-background text-foreground">{getInitials(contact.name)}</AvatarFallback>
-              <AvatarBadge className="bg-green-600 dark:bg-green-800" />
-            </Avatar>
-            <div>
-              <div className="font-medium text-sm">{contact.name}</div>
-              <div className="text-muted-foreground text-xs leading-3">{contact.role}</div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="Call">
-                  <PhoneCall />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Call</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="Tag">
-                  <Tag />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Tag</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="Snooze">
-                  <AlarmClock />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Snooze</TooltipContent>
-            </Tooltip>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="More actions">
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={onOpenContact}>
-                    <UserRound />
-                    View profile
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <Copy />
-                    Copy email
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <Flag />
-                    Mark priority
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem variant="destructive">Block contact</DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-
-        <Separator />
+          </>
+        )}
+        <p
+          className={cn(
+            "mt-1 text-right text-[10px] leading-none",
+            isUser ? "text-primary-foreground/60" : "text-muted-foreground",
+          )}
+        >
+          {format(new Date(message.createdAt), "h:mm a")}
+        </p>
       </div>
 
-      <MessageScrollerProvider autoScroll>
-        <MessageScroller className="min-h-0 flex-1">
-          <MessageScrollerViewport>
-            <MessageScrollerContent className="gap-6 px-2 py-8">
-              <Marker variant="separator">
-                <MarkerContent>May 6, 2026</MarkerContent>
-              </Marker>
+      {isUser && (
+        <Avatar className="mt-0.5 size-7 shrink-0">
+          <AvatarFallback className="bg-secondary text-secondary-foreground text-xs">
+            <User className="size-4" />
+          </AvatarFallback>
+        </Avatar>
+      )}
+    </div>
+  );
+}
 
-              {messages.map((message) => {
-                const isOutbound = message.align === "end";
-                const reactionAlign = isOutbound ? "start" : "end";
-                const senderName = isOutbound ? currentUser.name : contact.name;
-
-                return (
-                  <MessageScrollerItem
-                    key={message.id}
-                    messageId={String(message.id)}
-                    scrollAnchor={message.align === "end"}
-                  >
-                    <Message align={message.align}>
-                      <MessageAvatar>
-                        <Avatar>
-                          <AvatarFallback
-                            className={cn(
-                              "bg-muted text-foreground text-xs",
-                              isOutbound && "bg-primary text-primary-foreground",
-                            )}
-                          >
-                            {getInitials(senderName)}
-                          </AvatarFallback>
-                        </Avatar>
-                      </MessageAvatar>
-
-                      <MessageContent>
-                        <BubbleGroup>
-                          <Bubble variant={isOutbound ? "default" : "muted"} align={message.align}>
-                            <BubbleContent>{message.text}</BubbleContent>
-                            {message.reaction ? (
-                              <BubbleReactions aria-label={`Reaction: ${message.reaction}`} align={reactionAlign}>
-                                <span>{message.reaction}</span>
-                              </BubbleReactions>
-                            ) : null}
-                          </Bubble>
-                        </BubbleGroup>
-                        <MessageFooter>{message.time}</MessageFooter>
-                      </MessageContent>
-                    </Message>
-                  </MessageScrollerItem>
-                );
-              })}
-            </MessageScrollerContent>
-          </MessageScrollerViewport>
-          <MessageScrollerButton />
-        </MessageScroller>
-      </MessageScrollerProvider>
-
-      <div className="px-2">
-        <Tabs defaultValue="reply" className="gap-0 rounded-md border">
-          <TabsList
-            variant="line"
-            className="w-full justify-start gap-2 border-b px-3 **:data-[slot=tabs-trigger]:border-x-0 **:data-[slot=tabs-trigger]:px-6 group-data-horizontal/tabs:h-10"
+// ---------------------------------------------------------------------------
+// Empty state — greeting + suggested prompts
+// ---------------------------------------------------------------------------
+function EmptyState({
+  onSelectPrompt,
+}: {
+  onSelectPrompt: (prompt: string) => void;
+}) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-12 text-center">
+      <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10">
+        <Sparkles className="size-8 text-primary" />
+      </div>
+      <div>
+        <h2 className="font-semibold text-xl">How can I help you today?</h2>
+        <p className="mt-1.5 text-muted-foreground text-sm">
+          Powered by Gemini 3.6 Flash — ask me anything.
+        </p>
+      </div>
+      <div className="grid w-full max-w-lg grid-cols-1 gap-2 sm:grid-cols-2">
+        {SUGGESTED_PROMPTS.map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onSelectPrompt(p)}
+            className="flex items-center gap-2 rounded-xl border bg-muted/50 px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
           >
-            <TabsTrigger value="reply" className="flex-none px-1">
-              Reply
-            </TabsTrigger>
-            <TabsTrigger value="note" className="flex-none px-1">
-              Internal note
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="reply" className="m-0">
-            <MessageComposer placeholder="Type your message..." />
-          </TabsContent>
-          <TabsContent value="note" className="m-0">
-            <MessageComposer placeholder="Write an internal note..." />
-          </TabsContent>
-        </Tabs>
+            <Lightbulb className="size-4 shrink-0 text-muted-foreground" />
+            <span className="line-clamp-2">{p}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
 }
 
-function MessageComposer({ placeholder }: { placeholder: string }) {
+// ---------------------------------------------------------------------------
+// Insufficient credits modal
+// ---------------------------------------------------------------------------
+function InsufficientCreditsModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+
   return (
-    <form
-      className="w-full"
-      onSubmit={(event) => {
-        event.preventDefault();
-      }}
-    >
-      <InputGroup className="border-0 bg-transparent shadow-none has-[[data-slot=input-group-control]:focus-visible]:border-0 has-[[data-slot][aria-invalid=true]]:border-0 has-[[data-slot=input-group-control]:focus-visible]:ring-0 has-[[data-slot][aria-invalid=true]]:ring-0 dark:bg-transparent dark:has-[[data-slot][aria-invalid=true]]:ring-0">
-        <InputGroupTextarea
-          placeholder={placeholder}
-          className="min-h-14 px-3 py-2.5 text-sm ring-0 focus-visible:ring-0 aria-invalid:ring-0 dark:aria-invalid:ring-0"
-        />
-        <InputGroupAddon align="block-end">
-          <InputGroupButton aria-label="Format" type="button" size="icon-sm">
-            <Type />
-          </InputGroupButton>
-          <InputGroupButton aria-label="Emoji" type="button" size="icon-sm">
-            <Smile />
-          </InputGroupButton>
-          <InputGroupButton aria-label="Attach file" type="button" size="icon-sm">
-            <Paperclip />
-          </InputGroupButton>
-          <InputGroupButton aria-label="Insert link" type="button" size="icon-sm">
-            <Link />
-          </InputGroupButton>
-          <InputGroupButton aria-label="AI assist" type="button" size="icon-sm" variant="outline">
-            <Sparkles />
-          </InputGroupButton>
-          <InputGroupButton type="submit" variant="default" size="icon-sm" className="ml-auto">
-            <Send />
-            <span className="sr-only">Send</span>
-          </InputGroupButton>
-        </InputGroupAddon>
-      </InputGroup>
-    </form>
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Coins className="size-5 text-destructive" />
+            Out of Credits
+          </DialogTitle>
+          <DialogDescription>
+            You don&apos;t have enough credits to send a message. Each chat
+            message costs 1 credit. Top up your balance to continue.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              onClose();
+              router.push("/billing");
+            }}
+          >
+            Go to Billing
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Auto-growing textarea composer
+// ---------------------------------------------------------------------------
+function ChatComposer({
+  credits,
+  onSubmit,
+  onAbort,
+}: {
+  credits: number;
+  onSubmit: (prompt: string) => void;
+  onAbort: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isDisabled = credits === 0 && !isStreaming;
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [value]);
+
+  function handleSubmit() {
+    if (isStreaming) return;
+    if (credits === 0) {
+      setShowCreditsModal(true);
+      return;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
+    setValue("");
+    // Reset height
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  }
+
+  return (
+    <>
+      <InsufficientCreditsModal
+        open={showCreditsModal}
+        onClose={() => setShowCreditsModal(false)}
+      />
+
+      <div className="border-t bg-background px-4 pb-4 pt-3">
+        {isDisabled && (
+          <Alert variant="destructive" className="mb-3">
+            <AlertCircle className="size-4" />
+            <AlertDescription>
+              You have 0 credits remaining.{" "}
+              <a href="/billing" className="font-medium underline">
+                Top up to continue chatting.
+              </a>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="relative flex items-end gap-2 rounded-2xl border bg-background px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-ring">
+          <Textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              isDisabled
+                ? "No credits remaining…"
+                : "Message VertixAI… (Enter to send, Shift+Enter for newline)"
+            }
+            disabled={isDisabled}
+            rows={1}
+            className="max-h-48 min-h-[2rem] flex-1 resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
+          />
+
+          <div className="flex shrink-0 items-center gap-1.5 self-end pb-0.5">
+            <Badge
+              variant="secondary"
+              className="hidden gap-1 text-[10px] sm:flex"
+            >
+              <Coins className="size-2.5" />1 credit
+            </Badge>
+
+            {isStreaming ? (
+              <Button
+                size="icon-sm"
+                variant="destructive"
+                onClick={onAbort}
+                aria-label="Stop generation"
+                className="size-8"
+              >
+                <Square className="size-3.5" />
+              </Button>
+            ) : (
+              <Button
+                size="icon-sm"
+                onClick={handleSubmit}
+                disabled={isDisabled || !value.trim()}
+                aria-label="Send message"
+                className="size-8"
+              >
+                <Sparkles className="size-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <p className="mt-1.5 text-center text-[10px] text-muted-foreground">
+          AI can make mistakes. Verify important information.
+        </p>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ChatThread — main export
+// ---------------------------------------------------------------------------
+interface ChatThreadProps {
+  credits: number;
+  className?: string;
+}
+
+export function ChatThread({ credits, className }: ChatThreadProps) {
+  const {
+    messages,
+    activeConversationId,
+    isStreaming,
+    appendMessage,
+    appendStreamChunk,
+    finalizeStream,
+    setIsStreaming,
+    abortController,
+    setAbortController,
+    setActiveConversationId,
+    prependConversation,
+    conversations,
+  } = useChatStore();
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom on new messages / stream chunks
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const sendMessage = useCallback(
+    async (prompt: string) => {
+      if (isStreaming) return;
+
+      // Optimistic user message
+      const userMsg: ChatMessage = {
+        id: Math.random().toString(36).slice(2),
+        role: "user",
+        content: prompt,
+        createdAt: new Date().toISOString(),
+      };
+
+      // Placeholder streaming model message
+      const assistantMsg: ChatMessage = {
+        id: Math.random().toString(36).slice(2),
+        role: "model",
+        content: "",
+        createdAt: new Date().toISOString(),
+        streaming: true,
+      };
+
+      appendMessage(userMsg);
+      appendMessage(assistantMsg);
+      setIsStreaming(true);
+
+      const ac = new AbortController();
+      setAbortController(ac);
+
+      try {
+        const res = await fetch("/api/ai/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            conversationId: activeConversationId ?? undefined,
+          }),
+          signal: ac.signal,
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error ?? `HTTP ${res.status}`);
+        }
+
+        // If this was a new conversation, capture the id from response headers
+        const newConvId = res.headers.get("X-Conversation-Id");
+        const newConvTitle = res.headers.get("X-Conversation-Title");
+        if (newConvId && !activeConversationId) {
+          setActiveConversationId(newConvId);
+          // Add to sidebar list
+          const title = newConvTitle
+            ? decodeURIComponent(newConvTitle)
+            : "New Chat";
+          const alreadyExists = conversations.some((c) => c.id === newConvId);
+          if (!alreadyExists) {
+            prependConversation({
+              id: newConvId,
+              title,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              messages: [],
+            });
+          }
+        }
+
+        // Stream the response body
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            appendStreamChunk(decoder.decode(value, { stream: true }));
+          }
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") {
+          // User cancelled — leave partial response in place
+        } else {
+          // Replace the empty assistant bubble with an error note
+          appendStreamChunk(
+            err instanceof Error && err.message === "insufficient_credits"
+              ? "\n\n_You have run out of credits. Please top up at /billing._"
+              : "\n\n_Sorry, something went wrong. Please try again._",
+          );
+        }
+      } finally {
+        finalizeStream();
+        setIsStreaming(false);
+        setAbortController(null);
+      }
+    },
+    [
+      isStreaming,
+      activeConversationId,
+      conversations,
+      appendMessage,
+      appendStreamChunk,
+      finalizeStream,
+      setIsStreaming,
+      setAbortController,
+      setActiveConversationId,
+      prependConversation,
+    ],
+  );
+
+  function handleAbort() {
+    abortController?.abort();
+  }
+
+  return (
+    <div className={cn("flex h-full flex-col", className)}>
+      {/* Message canvas */}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <ScrollArea ref={scrollAreaRef} className="h-full">
+          <div className="flex min-h-full flex-col">
+            {messages.length === 0 ? (
+              <EmptyState onSelectPrompt={(p) => sendMessage(p)} />
+            ) : (
+              <div className="flex flex-col gap-5 py-6">
+                {messages.map((msg) => (
+                  <MessageBubble key={msg.id} message={msg} />
+                ))}
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+        </ScrollArea>
+      </div>
+
+      {/* Input bar */}
+      <ChatComposer
+        credits={credits}
+        onSubmit={sendMessage}
+        onAbort={handleAbort}
+      />
+    </div>
   );
 }
