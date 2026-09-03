@@ -16,10 +16,18 @@ import {
 // ---------------------------------------------------------------------------
 const VALID_MODEL_IDS = CHAT_MODELS.map((m) => m.id) as [string, ...string[]];
 
+const imageSchema = z.object({
+  /** Raw base64 string (no data-URL prefix). */
+  data: z.string().min(1),
+  /** MIME type validated to the three supported formats. */
+  mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+});
+
 const bodySchema = z.object({
-  prompt: z.string().min(1).max(32_000),
+  prompt: z.string().min(0).max(32_000),
   conversationId: z.string().uuid().optional(),
   model: z.enum(VALID_MODEL_IDS).optional().default(DEFAULT_MODEL_ID),
+  images: z.array(imageSchema).max(4).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -53,15 +61,21 @@ export async function POST(request: Request) {
     );
   }
 
-  const { prompt, conversationId, model: modelId } = parsed.data;
+  const { prompt, conversationId, model: modelId, images } = parsed.data;
+
+  // Must have either a text prompt or at least one image
+  if (!prompt && (!images || images.length === 0)) {
+    return NextResponse.json(
+      { error: "Provide a text prompt or at least one image." },
+      { status: 400 },
+    );
+  }
 
   // ── 3. Resolve model config ───────────────────────────────────────────────
   const modelConfig = findModel(modelId)!;
   const { creditCost } = modelConfig;
 
   // ── 4. Deduct credits atomically ──────────────────────────────────────────
-  // This happens BEFORE opening the stream so we can still return a normal
-  // JSON error response if the balance is insufficient.
   let usageLogId: string;
   try {
     const deduction = await checkAndDeductCredits(user.id, creditCost, "CHAT");
@@ -85,24 +99,24 @@ export async function POST(request: Request) {
       select: { id: true, title: true },
     });
     if (!existing) {
-      // Credits were deducted but we can't proceed — refund immediately.
       await refundCredits(user.id, creditCost, usageLogId);
-      return NextResponse.json(
-        { error: "Conversation not found" },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     }
     conversation = existing;
   } else {
+    // Use prompt as title, or a placeholder for image-only messages
+    const titleSource = prompt.trim() || "Image message";
     const title =
-      prompt.length > 60 ? `${prompt.slice(0, 57).trimEnd()}…` : prompt;
+      titleSource.length > 60
+        ? `${titleSource.slice(0, 57).trimEnd()}…`
+        : titleSource;
     conversation = await prisma.conversation.create({
       data: { userId: user.id, title },
       select: { id: true, title: true },
     });
   }
 
-  // ── 6. Build Gemini contents (multi-turn history) ─────────────────────────
+  // ── 6. Build Gemini contents ──────────────────────────────────────────────
   const history = await prisma.message.findMany({
     where: { conversationId: conversation.id },
     orderBy: { createdAt: "asc" },
@@ -110,24 +124,28 @@ export async function POST(request: Request) {
   });
 
   type GeminiRole = "user" | "model";
+  type GeminiPart =
+    | { text: string }
+    | { inlineData: { mimeType: string; data: string } };
+
+  // Build the parts array for the current user turn:
+  // images first (Gemini convention), then the text prompt
+  const currentTurnParts: GeminiPart[] = [
+    ...(images ?? []).map((img) => ({
+      inlineData: { mimeType: img.mimeType, data: img.data },
+    })),
+    ...(prompt ? [{ text: prompt }] : []),
+  ];
+
   const contents = [
     ...history.map((m) => ({
       role: m.role as GeminiRole,
-      parts: [{ text: m.content }],
+      parts: [{ text: m.content }] as GeminiPart[],
     })),
-    { role: "user" as GeminiRole, parts: [{ text: prompt }] },
+    { role: "user" as GeminiRole, parts: currentTurnParts },
   ];
 
-  // ── 7. Stream — with full rollback on any failure ─────────────────────────
-  //
-  // IMPORTANT: once we call `new Response(stream, ...)` the HTTP response
-  // headers are sent and we can no longer return a JSON error. All failures
-  // inside the ReadableStream must:
-  //   a) refund the credits via refundCredits()
-  //   b) signal the error to the client via controller.error()
-  //      (the client's fetch reader will reject, triggering the error handler
-  //       in sendMessage which shows an in-thread error bubble)
-  //
+  // ── 7. Stream — full rollback on any failure ──────────────────────────────
   const encoder = new TextEncoder();
   let fullAssistantResponse = "";
 
@@ -140,7 +158,7 @@ export async function POST(request: Request) {
           contents,
         });
 
-        // ── 7b. Pipe chunks to the client ───────────────────────────────────
+        // ── 7b. Pipe chunks ─────────────────────────────────────────────────
         for await (const chunk of result) {
           const text = chunk.text ?? "";
           if (text) {
@@ -149,11 +167,21 @@ export async function POST(request: Request) {
           }
         }
 
-        // ── 7c. Persist messages only on clean stream completion ────────────
+        // ── 7c. Persist on clean completion ─────────────────────────────────
+        // We store only the text of the user turn in the DB (images are not
+        // persisted to the DB per the AGENTS.md constraint — no base64 in PG).
         await prisma.message.createMany({
           data: [
-            { conversationId: conversation.id, role: "user",  content: prompt },
-            { conversationId: conversation.id, role: "model", content: fullAssistantResponse },
+            {
+              conversationId: conversation.id,
+              role: "user",
+              content: prompt || "[image]",
+            },
+            {
+              conversationId: conversation.id,
+              role: "model",
+              content: fullAssistantResponse,
+            },
           ],
         });
 
@@ -165,10 +193,7 @@ export async function POST(request: Request) {
         controller.close();
 
       } catch (generationError) {
-        // ── 7d. Rollback — refund credits and mark the log as refunded ───────
-        //
-        // We best-effort the refund: log failures but don't let a refund error
-        // mask the original generation error from reaching the client.
+        // ── 7d. Rollback credits ────────────────────────────────────────────
         try {
           await refundCredits(user.id, creditCost, usageLogId);
         } catch (refundError) {
@@ -177,9 +202,6 @@ export async function POST(request: Request) {
             refundError,
           );
         }
-
-        // Signal the error downstream so the client fetch reader rejects
-        // and the in-thread error bubble is shown.
         controller.error(generationError);
       }
     },

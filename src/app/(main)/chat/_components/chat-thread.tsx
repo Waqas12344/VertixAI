@@ -7,9 +7,11 @@ import {
   Coins,
   Copy,
   Lightbulb,
+  Paperclip,
   Sparkles,
   Square,
   User,
+  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -37,14 +39,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 import { CHAT_MODELS, findModel, type ChatModelId } from "@/config/ai-models";
+import { cn } from "@/lib/utils";
 
-import type { ChatMessage } from "./types";
+import type { AttachedImage, ChatMessage } from "./types";
 import { useChatStore } from "./use-chat-store";
 
 // ---------------------------------------------------------------------------
-// Suggested prompts shown on empty state
+// Constants
 // ---------------------------------------------------------------------------
 const SUGGESTED_PROMPTS = [
   "Explain quantum computing in simple terms",
@@ -53,8 +55,37 @@ const SUGGESTED_PROMPTS = [
   "Draft a professional email declining a meeting",
 ];
 
+const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const MAX_IMAGES = 4;
+
 // ---------------------------------------------------------------------------
-// Markdown renderer with syntax-highlighted code blocks
+// Utility — File → AttachedImage
+// ---------------------------------------------------------------------------
+function fileToAttachedImage(file: File): Promise<AttachedImage> {
+  return new Promise((resolve, reject) => {
+    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+      reject(new Error(`Unsupported type: ${file.type}`));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      // dataUrl = "data:<mime>;base64,<data>"
+      const base64 = dataUrl.split(",")[1];
+      resolve({
+        id: Math.random().toString(36).slice(2),
+        data: base64,
+        mimeType: file.type,
+        previewUrl: dataUrl,
+      });
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Markdown renderer
 // ---------------------------------------------------------------------------
 function MarkdownContent({ content }: { content: string }) {
   return (
@@ -185,7 +216,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Typing indicator — three bouncing dots shown before any text arrives
+// Typing indicator
 // ---------------------------------------------------------------------------
 function TypingIndicator() {
   return (
@@ -211,11 +242,49 @@ function TypingIndicator() {
 }
 
 // ---------------------------------------------------------------------------
+// Image thumbnail strip — used in both the composer preview and user bubbles
+// ---------------------------------------------------------------------------
+function ImageStrip({
+  images,
+  onRemove,
+}: {
+  images: AttachedImage[];
+  /** If provided, renders a remove button on each thumbnail. */
+  onRemove?: (id: string) => void;
+}) {
+  if (images.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {images.map((img) => (
+        <div key={img.id} className="group/thumb relative">
+          {/* biome-ignore lint/performance/noImgElement: preview thumbnail, not for SEO */}
+          <img
+            src={img.previewUrl}
+            alt="Attached"
+            className="size-16 rounded-lg border object-cover"
+          />
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(img.id)}
+              aria-label="Remove image"
+              className="absolute -right-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 transition-opacity group-hover/thumb:opacity-100"
+            >
+              <X className="size-2.5" />
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Single message bubble
 // ---------------------------------------------------------------------------
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
-  // Show typing indicator when the assistant bubble exists but content is still empty
   const isTyping = !isUser && message.streaming && message.content === "";
 
   return (
@@ -241,22 +310,26 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : "rounded-bl-sm bg-muted text-foreground",
         )}
       >
+        {/* Image thumbnails above the text in user bubbles */}
+        {isUser && message.images && message.images.length > 0 && (
+          <div className="mb-2">
+            <ImageStrip images={message.images} />
+          </div>
+        )}
+
         {isUser ? (
           <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
         ) : isTyping ? (
-          // No text yet — show animated dots
           <TypingIndicator />
         ) : (
           <>
             <MarkdownContent content={message.content} />
-            {/* Blinking cursor while more text is streaming in */}
             {message.streaming && (
               <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-current align-middle" />
             )}
           </>
         )}
 
-        {/* Only show timestamp once content has arrived */}
         {!isTyping && (
           <p
             className={cn(
@@ -281,7 +354,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 }
 
 // ---------------------------------------------------------------------------
-// Empty state — greeting + suggested prompts
+// Empty state
 // ---------------------------------------------------------------------------
 function EmptyState({ onSelectPrompt }: { onSelectPrompt: (p: string) => void }) {
   return (
@@ -327,8 +400,8 @@ function InsufficientCreditsModal({ open, onClose }: { open: boolean; onClose: (
             Out of Credits
           </DialogTitle>
           <DialogDescription>
-            You don&apos;t have enough credits to send a message. Each chat message
-            costs 1 credit. Top up your balance to continue.
+            You don&apos;t have enough credits to send a message. Top up your
+            balance to continue.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2">
@@ -350,7 +423,7 @@ function InsufficientCreditsModal({ open, onClose }: { open: boolean; onClose: (
 }
 
 // ---------------------------------------------------------------------------
-// Model selector dropdown — sits above the textarea inside the composer
+// Model selector
 // ---------------------------------------------------------------------------
 function ModelSelector() {
   const { selectedModelId, setSelectedModelId, isStreaming } = useChatStore();
@@ -359,18 +432,22 @@ function ModelSelector() {
     <Select
       value={selectedModelId}
       onValueChange={(v) => setSelectedModelId(v as ChatModelId)}
-      disabled={isStreaming}
+      disabled={isStreaming} 
     >
-      <SelectTrigger
-        className="h-7 w-auto   gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none focus:ring-0 focus-visible:ring-0"
+    <div className="py-2">
+        <SelectTrigger
+        className="h-7 w-auto gap-1.5 border-0 bg-transparent py-2 px-2 text-xs shadow-none focus:ring-0 focus-visible:ring-0"
         aria-label="Select AI model"
       >
-        <SelectValue />
+        
+          <SelectValue   />
+         
       </SelectTrigger>
+    </div>
       <SelectContent align="start" className="w-64">
         {CHAT_MODELS.map((m) => (
           <SelectItem key={m.id} value={m.id} className="py-2.5">
-            <div className="flex w-full items-center justify-between gap-3">
+            <div className="flex  px-1 w-full items-center justify-between gap-3">
               <div>
                 <p className="font-medium text-sm leading-none">{m.name}</p>
                 <p className="mt-0.5 text-muted-foreground text-xs">{m.description}</p>
@@ -392,7 +469,7 @@ function ModelSelector() {
 }
 
 // ---------------------------------------------------------------------------
-// Composer — fixed at the bottom, never scrolls
+// Composer
 // ---------------------------------------------------------------------------
 function ChatComposer({
   credits,
@@ -400,19 +477,19 @@ function ChatComposer({
   onAbort,
 }: {
   credits: number;
-  onSubmit: (prompt: string) => void;
+  onSubmit: (prompt: string, images: AttachedImage[]) => void;
   onAbort: () => void;
 }) {
   const [value, setValue] = useState("");
+  const [images, setImages] = useState<AttachedImage[]>([]);
   const [showCreditsModal, setShowCreditsModal] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const isStreaming = useChatStore((s) => s.isStreaming);
   const selectedModelId = useChatStore((s) => s.selectedModelId);
-
-  // Resolve cost from config so the badge stays in sync with the selector
   const currentModel = findModel(selectedModelId);
   const creditCost = currentModel?.creditCost ?? 1;
-
   const isDisabled = credits < creditCost && !isStreaming;
 
   // Auto-resize textarea
@@ -423,6 +500,47 @@ function ChatComposer({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [value]);
 
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function removeImage(id: string) {
+    setImages((prev) => prev.filter((img) => img.id !== id));
+  }
+
+  async function addFiles(files: FileList | File[]) {
+    const incoming = Array.from(files).filter((f) =>
+      ACCEPTED_IMAGE_TYPES.includes(f.type),
+    );
+    if (!incoming.length) return;
+
+    const remaining = MAX_IMAGES - images.length;
+    const toProcess = incoming.slice(0, remaining);
+
+    const converted = await Promise.all(
+      toProcess.map((f) => fileToAttachedImage(f).catch(() => null)),
+    );
+    const valid = converted.filter((img): img is AttachedImage => img !== null);
+    setImages((prev) => [...prev, ...valid]);
+  }
+
+  // ── Event handlers ────────────────────────────────────────────────────────
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) addFiles(e.target.files);
+    // Reset so the same file can be re-selected if removed
+    e.target.value = "";
+  }
+
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const imageFiles = Array.from(e.clipboardData.items)
+      .filter((item) => ACCEPTED_IMAGE_TYPES.includes(item.type))
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null);
+
+    if (imageFiles.length > 0) {
+      e.preventDefault(); // prevent pasting the raw data into the textarea
+      addFiles(imageFiles);
+    }
+    // Plain-text pastes fall through to default behaviour
+  }
+
   function handleSubmit() {
     if (isStreaming) return;
     if (credits < creditCost) {
@@ -430,9 +548,11 @@ function ChatComposer({
       return;
     }
     const trimmed = value.trim();
-    if (!trimmed) return;
-    onSubmit(trimmed);
+    // Allow sending with only images and no text
+    if (!trimmed && images.length === 0) return;
+    onSubmit(trimmed, images);
     setValue("");
+    setImages([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   }
 
@@ -443,11 +563,25 @@ function ChatComposer({
     }
   }
 
+  const canSend = !isDisabled && (value.trim().length > 0 || images.length > 0);
+
   return (
     <>
       <InsufficientCreditsModal
         open={showCreditsModal}
         onClose={() => setShowCreditsModal(false)}
+      />
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={ACCEPTED_IMAGE_TYPES.join(",")}
+        multiple
+        className="sr-only"
+        onChange={handleFileChange}
+        aria-label="Attach image"
+        tabIndex={-1}
       />
 
       <div className="shrink-0 border-t bg-background px-4 pb-4 pt-3">
@@ -464,18 +598,26 @@ function ChatComposer({
         )}
 
         <div className="rounded-2xl border bg-background shadow-sm focus-within:ring-2 focus-within:ring-ring">
-          {/* Top row: model selector */}
-          <div className="flex items-center border-b px-2 py-1 justify-end">
-            <ModelSelector />
+          {/* Row 1: model selector */}
+          <div className="flex items-center justify-end border-b px-2 py-2">
+            <ModelSelector  />
           </div>
 
-          {/* Bottom row: textarea + action buttons */}
+          {/* Row 2: image preview strip (only shown when images are attached) */}
+          {images.length > 0 && (
+            <div className="border-b px-3 py-2">
+              <ImageStrip images={images} onRemove={removeImage} />
+            </div>
+          )}
+
+          {/* Row 3: textarea + action buttons */}
           <div className="flex items-end gap-2 px-3 py-2">
             <Textarea
               ref={textareaRef}
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               placeholder={
                 isDisabled
                   ? `Need ${creditCost} credits — not enough balance…`
@@ -483,11 +625,24 @@ function ChatComposer({
               }
               disabled={isDisabled}
               rows={1}
-              className="max-h-48 min-h-[2rem] flex-1 resize-none border-0 bg-transparent px-1 py-0 text-sm shadow-none focus-visible:ring-0"
+              className="max-h-48 min-h-[2rem] flex-1 resize-none border-0 bg-transparent px-1 py-2 text-sm shadow-none focus-visible:ring-0"
             />
 
             <div className="flex shrink-0 items-center gap-1.5 self-end pb-0.5">
-              {/* Dynamic cost badge — updates when model changes */}
+              {/* Paperclip — attach image */}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                disabled={isDisabled || images.length >= MAX_IMAGES}
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Attach image"
+                className="size-8 text-muted-foreground hover:text-foreground"
+              >
+                <Paperclip className="size-3.5" />
+              </Button>
+
+              {/* Dynamic credit cost badge */}
               <Badge variant="secondary" className="hidden gap-1 text-[10px] sm:flex">
                 <Coins className="size-2.5" />
                 {creditCost} {creditCost === 1 ? "credit" : "credits"}
@@ -507,7 +662,7 @@ function ChatComposer({
                 <Button
                   size="icon-sm"
                   onClick={handleSubmit}
-                  disabled={isDisabled || !value.trim()}
+                  disabled={!canSend}
                   aria-label="Send message"
                   className="size-8"
                 >
@@ -553,13 +708,12 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom whenever messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const sendMessage = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, images: AttachedImage[] = []) => {
       if (isStreaming) return;
 
       const userMsg: ChatMessage = {
@@ -567,9 +721,9 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
         role: "user",
         content: prompt,
         createdAt: new Date().toISOString(),
+        images: images.length > 0 ? images : undefined,
       };
 
-      // Empty content + streaming:true → shows TypingIndicator immediately
       const assistantMsg: ChatMessage = {
         id: Math.random().toString(36).slice(2),
         role: "model",
@@ -593,6 +747,11 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
             prompt,
             conversationId: activeConversationId ?? undefined,
             model: selectedModelId,
+            // Strip previewUrl before sending — server only needs data + mimeType
+            images:
+              images.length > 0
+                ? images.map(({ data, mimeType }) => ({ data, mimeType }))
+                : undefined,
           }),
           signal: ac.signal,
         });
@@ -602,7 +761,6 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
           throw new Error(errData.error ?? `HTTP ${res.status}`);
         }
 
-        // Capture new conversation id from response header
         const newConvId = res.headers.get("X-Conversation-Id");
         const newConvTitle = res.headers.get("X-Conversation-Title");
         if (newConvId && !activeConversationId) {
@@ -620,7 +778,6 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
           }
         }
 
-        // Pipe stream chunks — typing indicator disappears on first chunk
         const reader = res.body?.getReader();
         const decoder = new TextDecoder();
         if (reader) {
@@ -632,12 +789,12 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
         }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
-          // User cancelled — partial response stays visible
+          // User cancelled — keep partial response
         } else {
           appendStreamChunk(
             err instanceof Error && err.message === "insufficient_credits"
               ? "\n\n_You have run out of credits. Please top up at /billing._"
-              : "\n\n_Sorry, something went wrong. Please try again._",
+              : "\n\n_Sorry, something went wrong. Your credits have not been charged._",
           );
         }
       } finally {
@@ -666,9 +823,7 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
   }
 
   return (
-    // h-full + flex-col so scroll area takes all remaining space and composer is pinned
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
-      {/* Scrollable message canvas — flex-1 + min-h-0 is the key to preventing overflow */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex min-h-full flex-col">
           {messages.length === 0 ? (
@@ -680,12 +835,10 @@ export function ChatThread({ credits, className }: ChatThreadProps) {
               ))}
             </div>
           )}
-          {/* Scroll anchor */}
           <div ref={bottomRef} className="h-px" />
         </div>
       </div>
 
-      {/* Composer — shrink-0 keeps it fixed at the bottom */}
       <ChatComposer
         credits={credits}
         onSubmit={sendMessage}

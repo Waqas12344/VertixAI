@@ -1,6 +1,5 @@
 // ---------------------------------------------------------------------------
 // Shared types for the AI chatbot UI
-// These replace the old CRM-typed data.ts structures.
 // ---------------------------------------------------------------------------
 
 export type ConversationSummary = {
@@ -11,12 +10,26 @@ export type ConversationSummary = {
   messages: { role: string; content: string }[];
 };
 
+/** A single image attached to a user message — base64 encoded, ready for Gemini. */
+export type AttachedImage = {
+  /** Stable local id for React keys / removal. */
+  id: string;
+  /** Raw base64 string WITHOUT the data-URL prefix. */
+  data: string;
+  /** MIME type — "image/png" | "image/jpeg" | "image/webp" */
+  mimeType: string;
+  /** data-URL used only for the <img> preview thumbnail. */
+  previewUrl: string;
+};
+
 export type ChatMessage = {
-  id: string; // local uuid for optimistic rendering
+  id: string;
   role: "user" | "model";
   content: string;
   createdAt: string; // ISO string
-  streaming?: boolean; // true while the assistant is still typing
+  streaming?: boolean;
+  /** Images attached to a user message — stored for in-bubble display. */
+  images?: AttachedImage[];
 };
 
 export type DateGroup = "Today" | "Yesterday" | "Previous 7 Days" | "Older";
