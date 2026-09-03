@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
@@ -20,7 +21,8 @@ const formSchema = z.object({
   remember: z.boolean().optional(),
 });
 
-export function LoginForm() {
+// Inner component that uses useSearchParams — must be inside <Suspense>
+function LoginFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
@@ -120,5 +122,15 @@ export function LoginForm() {
         {isLoading ? "Logging in…" : "Login"}
       </Button>
     </form>
+  );
+}
+
+// Public export wraps LoginFormInner in Suspense so useSearchParams
+// doesn't break static prerendering in Next.js App Router.
+export function LoginForm() {
+  return (
+    <Suspense fallback={<div className="h-[220px] animate-pulse rounded-md bg-muted" />}>
+      <LoginFormInner />
+    </Suspense>
   );
 }
