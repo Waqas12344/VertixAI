@@ -108,10 +108,12 @@ export default async function ProfilePage() {
     year: "numeric",
   }).format(new Date(dbUser.createdAt));
 
+  type LogEntry = { id: string; serviceType: string; creditsUsed: number; createdAt: Date };
+
   // Aggregate usage stats
-  const totalSpent = dbUser.usageLogs.reduce((sum, l) => sum + l.creditsUsed, 0);
-  const chatCount = dbUser.usageLogs.filter((l) => l.serviceType === "CHAT").length;
-  const imageCount = dbUser.usageLogs.filter((l) => l.serviceType === "IMAGE").length;
+  const totalSpent = dbUser.usageLogs.reduce((sum: number, l: LogEntry) => sum + l.creditsUsed, 0);
+  const chatCount = dbUser.usageLogs.filter((l: LogEntry) => l.serviceType === "CHAT").length;
+  const imageCount = dbUser.usageLogs.filter((l: LogEntry) => l.serviceType === "IMAGE").length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -305,7 +307,7 @@ export default async function ProfilePage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dbUser.usageLogs.map((log) => (
+                  {dbUser.usageLogs.map((log: LogEntry) => (
                     <TableRow key={log.id}>
                       <TableCell>
                         <div className="flex items-center gap-2">

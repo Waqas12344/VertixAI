@@ -138,7 +138,7 @@ export async function POST(request: Request) {
   ];
 
   const contents = [
-    ...history.map((m) => ({
+    ...history.map((m: { role: string; content: string }) => ({
       role: m.role as GeminiRole,
       parts: [{ text: m.content }] as GeminiPart[],
     })),

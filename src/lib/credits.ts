@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 
+type PrismaTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
 // ---------------------------------------------------------------------------
 // Error types
 // ---------------------------------------------------------------------------
@@ -35,7 +37,7 @@ export async function checkAndDeductCredits(
   cost: number,
   serviceType: string,
 ): Promise<DeductResult> {
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx: PrismaTx) => {
     // 1. Read current balance
     const user = await tx.user.findUnique({
       where: { id: userId },

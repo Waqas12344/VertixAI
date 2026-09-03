@@ -34,13 +34,15 @@ export default async function BillingPage() {
     },
   });
 
+  type UsageLogEntry = { serviceType: string; creditsUsed: number };
+
   const chatCreditsUsed = dbUser.usageLogs
-    .filter((l) => l.serviceType === "CHAT")
-    .reduce((s, l) => s + l.creditsUsed, 0);
+    .filter((l: UsageLogEntry) => l.serviceType === "CHAT")
+    .reduce((s: number, l: UsageLogEntry) => s + l.creditsUsed, 0);
 
   const imageCreditsUsed = dbUser.usageLogs
-    .filter((l) => l.serviceType === "IMAGE")
-    .reduce((s, l) => s + l.creditsUsed, 0);
+    .filter((l: UsageLogEntry) => l.serviceType === "IMAGE")
+    .reduce((s: number, l: UsageLogEntry) => s + l.creditsUsed, 0);
 
   return (
     <div className="flex flex-col gap-8">
