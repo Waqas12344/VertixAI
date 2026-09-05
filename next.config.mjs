@@ -4,6 +4,16 @@ const nextConfig = {
   compiler: {
     removeConsole: process.env.NODE_ENV === "production",
   },
+  images: {
+    remotePatterns: [
+      {
+        // Supabase Storage — generated-images bucket public URLs
+        protocol: "https",
+        hostname: "kqpjwckfwnsaqfqgnzfo.supabase.co",
+        pathname: "/storage/v1/object/public/**",
+      },
+    ],
+  },
   async redirects() {
     return [
       {
